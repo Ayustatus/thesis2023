@@ -1,0 +1,43 @@
+@startuml Overview
+hide footbox
+[-> Main : Start program
+activate Main
+Main -> Parser : init()
+activate Parser
+Main -> Parser : validate config
+Parser --> Main : return True/false
+Main -> Parser : Parse vms
+Parser --> Main : return vms
+create VM_Manager
+Main -> VM_Manager : init()
+activate VM_Manager
+Main -> VM_Manager : create vms
+create VM
+VM_Manager -> VM : create 
+activate VM
+VM_Manager --> Main : return vms
+Main -> Parser : parse traffic
+Parser --> Main : return traffic
+Main -> VM_Manager : Set Traces
+VM_Manager -> VM : trace
+Main -> VM_Manager : Start traffic
+VM_Manager -> VM : start traffic
+Main -> Parser : parse attacks
+Parser --> Main : return attacks
+deactivate Parser
+Main -> VM_Manager : start attacks
+VM_Manager -> VM : start attacks
+Main -> VM_Manager : wait upon completion
+VM_Manager --> Main : return
+deactivate VM
+Main -> VM_Manager : coalesce meta files
+deactivate VM_Manager
+create Transformer
+Main -> Transformer : init()
+activate Transformer
+Main -> Transformer : transform
+Transformer --> Main : return
+deactivate Transformer
+Main ->[ : program complete
+deactivate Main
+@enduml

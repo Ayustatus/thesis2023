@@ -1,0 +1,192 @@
+import subprocess
+import constants as c
+from ..utils import convert_to_sec
+import os
+from threading import Thread
+import time
+from .ManagerInterface import ManagerInterface as Manager
+class VBoxLinux(Manager):
+
+    def __init__(self,vms,args,max_depth,max_groups):
+        self.vms = vms
+        self.install_loc = vm_location
+        self.iso_loc = iso_location
+        self.self_loc = self_loc
+        self.traffic_dict = None
+        self.shared = shared_folder
+        self.shared_folder = None
+
+# setters and getters
+    def set_traffic(self,traffic):
+        self.traffic_dict = traffic
+
+# creation
+    def create_vm(self,vm,ostype):
+
+        exec_string = str.format('{0} createvm --name {1} --ostype {2} --register --basefolder "{3}"',
+                                 self.self_loc,vm.name,ostype,self.install_loc)
+        if vm.group != "":
+            exec_string += str.format(" --groups {0}",vm.group)
+
+        subprocess.run(exec_string)
+
+    def create_vr_drive(self,vm):
+        disk_path = self.install_loc
+        if vm.group != "":
+            group_parts = vm.group.split("/")
+            del group_parts[0]
+            for part in group_parts:
+                disk_path = os.path.join(disk_path,part)
+        
+        disk_path = os.path.join(disk_path,vm.name,vm.name + ".vdi") 
+        exec_string = str.format('{0} createmedium disk --filename "{1}" --size {2}',self.self_loc,disk_path,vm.storage)
+        subprocess.run(exec_string)
+        controller_name = "SATA"
+        exec_string_2 = str.format('{0} storagectl {1} --name SATA --add sata --controller IntelAhci --portcount 2 --hostiocache off --bootable on',self.self_loc,vm.name)
+        subprocess.run(exec_string_2)
+        exec_string_3 = str.format('{0} storageattach {1} --storagectl {2} --port 0 --device 0 --type {3} --medium "{4}"',
+                                   self.self_loc,vm.name,controller_name,"hdd",disk_path)
+        subprocess.run(exec_string_3)
+        exec_string_4 = str.format('{0} storageattach {1} --storagectl {2} --port 1 --device 0 --type {3} --medium "{4}"',
+                                   self.self_loc,vm.name,controller_name,"dvddrive",os.path.join(self.iso_loc,vm.os))
+        subprocess.run(exec_string_4) 
+
+    def create_vms(self,args):
+        #TODO check space
+        threads = []
+        for vm_name in self.vms:
+            vm = self.vms[vm_name]
+ 
+            exists = self.vm_exists(vm_name)
+            if not args[c.NO_RECREATE] or not exists:
+                t = Thread(target=self.threaded_install,args=[vm])
+                threads.append(t)
+                osdata = self.check_os(vm.os)
+                ostype = osdata["OSTypeId"]
+                if exists:
+                    #teardown
+                    pass
+                self.create_vm(vm)
+                self.modify_vm(vm)
+                self.create_vr_drive(vm)
+                self.unattended_install(vm,t)
+            
+        for thread in threads:
+            thread.join()
+        print("VMs have been created")
+
+    def modify_vm(self,vm):
+        exec_string = str.format("{0} modifyvm {1} --cpus {2} --memory {3} --vram {4} --graphicscontroller {5} --pae {6}"+
+                                 ' --audiocontroller {7} --usbxhci {8}  --nic1 nat',
+                                 self.self_loc,vm.name,vm.cpus,vm.ram,128,"vboxsvga","off","hda","on")
+        subprocess.run(exec_string)
+
+# checks
+    def vm_exists(self,name):
+        exec_string = str.format('{0} list vms',self.self_loc)
+        result = subprocess.run(exec_string,capture_output=True)
+        result_string = result.stdout #byte string
+        result_arr = result_string.decode().split(os.linesep)
+        for string_response in result_arr:
+            if name in string_response:
+                return True
+        return False
+    
+    def vm_started(self,vm):
+        exec_string = str.format('{0} list runningvms',self.self_loc)
+        result = subprocess.run(exec_string,capture_output=True)
+        result_string = result.stdout #byte string
+        result_arr = result_string.decode().split(os.linesep)
+        for string_response in result_arr:
+            if vm.name in string_response:
+                return True
+        return False
+
+    
+
+    def start_vm(self,vm):
+        exec_string_1 = str.format('{0} startvm {1} --type headless',self.self_loc,vm.name)
+        subprocess.run(exec_string_1)
+        print("starting vm")
+        script = os.path.join(self.shared,"start_up.py")
+        running = False
+        print("waiting for start")
+        while not running:
+            try:
+                result =  subprocess.run(str.format('{0} guestcontrol {1} run "echo HELLO WORLD',self.self_loc,vm.name),capture_output=True)
+                print("RESULT")
+                print(result)
+                if result.stderr == b'':
+                    running = True
+            except Exception as e:
+                print(e)
+                #sys.exit(-1)
+                
+            
+            print("waiting complete")
+
+
+# pcap generation
+    def start_traffic(self):
+        #input params into target,model,params
+        for instance in self.traffic_dict:
+            origin_vm = None
+            target_vm = None
+            if c.ORIGIN in instance:
+               origin_vm =  self.vms[instance[c.ORIGIN]]
+            if c.TARGET in instance:
+                target_vm = self.vms[instance[c.TARGET]]
+            
+            t = Thread(target=self.run_traffic_script,args=[instance[c.SCRIPT],origin_vm,target_vm,instance[c.MODEL],instance[c.PARAMS]])
+            t.start()
+
+    def set_trace(self,vm,status="on"):
+        trace_path = self.install_loc
+        if vm.group != "":
+            group_parts = vm.group.split("/")
+            del group_parts[0]
+            for part in group_parts:
+                trace_path = os.path.join(trace_path,part)
+        
+        trace_path = os.path.join(trace_path,vm.name,vm.name + ".pcap") 
+        exec_string = str.format('{0} modifyvm {1} --nictrace1 {2} --nictracefile1 "{3}"',self.self_loc,vm.name,status,trace_path)
+        subprocess.run(exec_string)
+
+    def run_traffic_script(self, script_file, origin_vm, target_vm, traffic_model,traffic_params):
+        print("attempting to start traffic")
+        script = os.path.join(self.shared,"traffic_scripts",script_file)
+        if origin_vm is None:
+            exec_string = str.format('{0} guestcontrol VM_NAME --user=test-user --password=password run "python {1}"',self.self_loc,script)
+        else:
+            exec_string = str.format('{0} guestcontrol {1} --user=test-user --password=password run "python {2}"',self.self_loc,origin_vm.name,script)
+
+        if target_vm is not None:  #TODO ip of target instead maybe.
+            exec_string = str.format('{0} --{1} {2}"',exec_string[:-1],c.TARGET,target_vm.name)
+        
+        duration_val = traffic_model[c.DURATION]
+        duration_type = traffic_model[c.DURATION_TYPE]
+        duration = convert_to_sec(duration_val,duration_type)
+        exec_string = str.format('{0} --{1} {2}"',exec_string[:-1],c.DURATION,duration)
+        for param_dict in traffic_params:
+            exec_string = str.format('{0} --{1} {2}"',exec_string[:-1],param_dict[c.NAME], param_dict[c.VALUE])
+        
+        if origin_vm is None:
+            for vm_name in self.vms:
+                print(vm_name)
+                self.set_trace(self.vms[vm_name])
+                if not self.vm_started(self.vms[vm_name]):
+                    self.start_vm(self.vms[vm_name])
+                exec_string = exec_string.replace("VM_NAME",str.format('"{0}"',vm_name))
+                
+                print("starting script without origin")
+                print(exec_string)
+                subprocess.run(exec_string)
+        else:
+            print("attempting to start trace")
+            self.set_trace(origin_vm)
+            print("trace should have started")
+            if not self.vm_started(origin_vm):
+                self.start_vm(origin_vm)
+            print("starting script")
+            print(exec_string)
+            subprocess.run(exec_string)

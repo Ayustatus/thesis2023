@@ -1,0 +1,244 @@
+import subprocess
+import constants as c
+from utils import convert_to_sec
+import os
+from threading import Thread
+import time
+
+from .ManagerInterface import ManagerInterface as Manager
+class Windows(Manager):
+
+    def __init__(self,vms,args,max_depth,max_groups):
+        self.vms = vms
+        self.install_loc = vm_location
+        self.iso_loc = iso_location
+        self.self_loc = self_loc
+        self.traffic_dict = None
+        self.shared = shared_folder
+
+# setters and getters
+    def set_traffic(self,traffic):
+        self.traffic_dict = traffic
+
+    def reshare(self):
+        return self.args[c.RESHARE_FOLDER]
+
+# creation
+    def create_vm(self,vm,ostype):
+        exec_string = str.format('{0} createvm --name {1} --ostype {2} --register --basefolder "{3}"',
+                                 self.self_loc,vm.name,ostype,self.install_loc)
+        if vm.group != "":
+            exec_string += str.format(" --groups {0}",vm.group)
+
+        subprocess.run(exec_string)
+
+    def create_vr_drive(self,vm):
+        disk_path = self.install_loc
+        if vm.group != "":
+            group_parts = vm.group.split("/")
+            del group_parts[0]
+            for part in group_parts:
+                disk_path = os.path.join(disk_path,part)
+        
+        disk_path = os.path.join(disk_path,vm.name,vm.name + ".vdi") 
+        exec_string = str.format('{0} createmedium disk --filename "{1}" --size {2}',self.self_loc,disk_path,vm.storage)
+        subprocess.run(exec_string)
+        controller_name = "SATA"
+        exec_string_2 = str.format('{0} storagectl {1} --name SATA --add sata --controller IntelAhci --portcount 2 --hostiocache off --bootable on',self.self_loc,vm.name)
+        subprocess.run(exec_string_2)
+        exec_string_3 = str.format('{0} storageattach {1} --storagectl {2} --port 0 --device 0 --type {3} --medium "{4}"',
+                                   self.self_loc,vm.name,controller_name,"hdd",disk_path)
+        subprocess.run(exec_string_3)
+        exec_string_4 = str.format('{0} storageattach {1} --storagectl {2} --port 1 --device 0 --type {3} --medium "{4}"',
+                                   self.self_loc,vm.name,controller_name,"dvddrive",os.path.join(self.iso_loc,vm.os))
+        subprocess.run(exec_string_4) 
+
+    def create_vms(self,args):
+        #TODO check space
+        threads = []
+        for vm_name in self.vms:
+            vm = self.vms[vm_name]
+ 
+            exists = self.vm_exists(vm_name)
+            if not args[c.NO_RECREATE] or not exists:
+                t = Thread(target=self.threaded_install,args=[vm])
+                threads.append(t)
+                osdata = self.check_os(vm.os)
+                ostype = osdata["OSTypeId"]
+                if exists:
+                    #teardown
+                    pass
+                self.create_vm(vm,ostype)
+                self.modify_vm(vm)
+                self.create_vr_drive(vm)
+                self.unattended_install(vm,t)
+            
+        for thread in threads:
+            thread.join()
+        print("VMs have been created")
+
+    def modify_vm(self,vm):
+        exec_string = str.format("{0} modifyvm {1} --cpus {2} --memory {3} --vram {4} --graphicscontroller {5} --pae {6}"+
+                                 ' --audiocontroller {7} --usbxhci {8}  --nic1 nat',
+                                 self.self_loc,vm.name,vm.cpus,vm.ram,128,"vboxsvga","off","hda","on")
+        subprocess.run(exec_string)
+
+# checks
+    def vm_exists(self,name):
+        exec_string = str.format('{0} list vms',self.self_loc)
+        result = subprocess.run(exec_string,capture_output=True)
+        result_string = result.stdout #byte string
+        result_arr = result_string.decode().split(os.linesep)
+        for string_response in result_arr:
+            if name in string_response:
+                return True
+        return False
+    
+    def vm_started(self,vm):
+        exec_string = str.format('{0} list runningvms',self.self_loc)
+        result = subprocess.run(exec_string,capture_output=True)
+        result_string = result.stdout #byte string
+        result_arr = result_string.decode().split(os.linesep)
+        for string_response in result_arr:
+            if vm.name in string_response:
+                return True
+        return False
+    
+
+#installation
+    def check_os(self,os_string):
+        iso_path = os.path.join(self.iso_loc,os_string)
+        exec_string = str.format('{0} unattended detect --iso="{1}" --machine-readable',self.self_loc,iso_path)
+        result = subprocess.run(exec_string,capture_output=True)
+        result_string = result.stdout #byte string
+        result_arr = result_string.decode().split(os.linesep)
+        result_dict = {}
+        sub_dicts = []
+        for res in result_arr:
+            if res != '':
+                key,val = res.split("=")
+                if val != '""' and sub_dicts == []:
+                    result_dict[key]=val.strip('" ')
+                elif val != '""':
+                    result_dict[sub_dicts[-1]][key]=val.strip('" ')
+                else:
+                    result_dict[key] = {}
+                    sub_dicts.append(key)
+            else:
+                sub_dicts.pop(-1)
+        return result_dict
+    
+
+
+
+    def unattended_install(self,vm,thread):
+        
+        iso_path = os.path.join(self.iso_loc,vm.os)
+        exec_string = str.format('{0} unattended install {1} --iso="{2}" --user=test-user'+ 
+                                 ' --full-user-name=tester --password password  --image-index=1 --install-additions --additions-iso="{3}" '+
+                                 '--post-install-command="VBoxControl guestproperty set installation_finished y&&(shutdown /s || shutdown -P now)" ',
+                                 self.self_loc,vm.name,iso_path,c.DEFAULT_ADDITION_ISO_LOCATION)
+        subprocess.run(exec_string)
+        thread.start()
+
+    def threaded_install(self,vm):
+        self.start_vm(vm,True)
+        exec_string_3 = str.format('{0} guestproperty wait {1} installation_finished ',self.self_loc,vm.name)
+        subprocess.run(exec_string_3) 
+        time.sleep(90)
+        self.share_folder(vm)
+
+    def share_folder(self,vm):
+        print("creating shared folder")
+        exec_string = str.format('{0} sharedfolder add {1} --name {2} --hostpath {3} --automount',
+                                 self.self_loc,vm.name,"shared","C:\\Users\\ma-lob\\Documents\\thesis2023\\dataset\\shared_files")
+        subprocess.run(exec_string)
+        print("shared folder created")
+
+    def start_vm(self,vm,installation=False):
+        exec_string_1 = str.format('{0} startvm {1} --type headless',self.self_loc,vm.name)
+        subprocess.run(exec_string_1)
+        print("starting vm")
+        if not installation:
+            script = os.path.join(self.shared,"start_up.py")
+            running = False
+            print("waiting for start")
+            while not running:
+                try:
+                    result =  subprocess.run(str.format('{0} guestcontrol {1} run "echo HELLO WORLD',self.self_loc,vm.name),capture_output=True)
+                    print("RESULT")
+                    print(result)
+                    if result.stderr == b'':
+                        running = True
+                except Exception as e:
+                    print(e)
+                    #sys.exit(-1)
+                
+            
+            print("waiting complete")
+
+
+# pcap generation
+    def start_traffic(self):
+        #input params into target,model,params
+        for instance in self.traffic_dict:
+            origin_vm = None
+            target_vm = None
+            if c.ORIGIN in instance:
+               origin_vm =  self.vms[instance[c.ORIGIN]]
+            if c.TARGET in instance:
+                target_vm = self.vms[instance[c.TARGET]]
+            
+            t = Thread(target=self.run_traffic_script,args=[instance[c.SCRIPT],origin_vm,target_vm,instance[c.MODEL],instance[c.PARAMS]])
+            t.start()
+
+    def set_trace(self,vm,status="on"):
+        trace_path = self.install_loc
+        if vm.group != "":
+            group_parts = vm.group.split("/")
+            del group_parts[0]
+            for part in group_parts:
+                trace_path = os.path.join(trace_path,part)
+        
+        trace_path = os.path.join(trace_path,vm.name,vm.name + ".pcap") 
+        exec_string = str.format('{0} modifyvm {1} --nictrace1 {2} --nictracefile1 "{3}"',self.self_loc,vm.name,status,trace_path)
+        subprocess.run(exec_string)
+
+    def run_traffic_script(self, script_file, origin_vm, target_vm, traffic_model,traffic_params):
+        print("attempting to start traffic")
+        script = os.path.join(self.shared,"traffic_scripts",script_file)
+        if origin_vm is None:
+            exec_string = str.format('{0} guestcontrol VM_NAME --user=test-user --password=password run "python {1}"',self.self_loc,script)
+        else:
+            exec_string = str.format('{0} guestcontrol {1} --user=test-user --password=password run "python {2}"',self.self_loc,origin_vm.name,script)
+
+        if target_vm is not None:  #TODO ip of target instead maybe.
+            exec_string = str.format('{0} --{1} {2}"',exec_string[:-1],c.TARGET,target_vm.name)
+        
+        duration_val = traffic_model[c.DURATION]
+        duration_type = traffic_model[c.DURATION_TYPE]
+        duration = convert_to_sec(duration_val,duration_type)
+        exec_string = str.format('{0} --{1} {2}"',exec_string[:-1],c.DURATION,duration)
+        for param_dict in traffic_params:
+            exec_string = str.format('{0} --{1} {2}"',exec_string[:-1],param_dict[c.NAME], param_dict[c.VALUE])
+        
+        if origin_vm is None:
+            for vm_name in self.vms:
+                print(vm_name)
+                self.set_trace(self.vms[vm_name])
+                if not self.vm_started(self.vms[vm_name]):
+                    self.start_vm(self.vms[vm_name])
+                exec_string = exec_string.replace("VM_NAME",str.format('"{0}"',vm_name))
+                
+                print("starting script without origin")
+                print(exec_string)
+                subprocess.run(exec_string)
+        else:
+            print("attempting to start trace")
+            self.set_trace(origin_vm)
+            print("trace should have started")
+            if not self.vm_started(origin_vm):
+                self.start_vm(origin_vm)
+            print("starting script")
+            print(exec_string)
+            subprocess.run(exec_string)

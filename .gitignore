@@ -1,0 +1,14 @@
+__pycache__/
+*.exe
+env/lib/
+env/lib64
+env/include/
+.vscode/
+.idea/
+
+dataset/shared_files/output/temp/
+dataset/shared_files/output/pcap_files/
+dataset/shared_files/attack_scripts/atomic/
+dataset/shared_files/traffic_scripts/servers/flask/*/
+out/
+

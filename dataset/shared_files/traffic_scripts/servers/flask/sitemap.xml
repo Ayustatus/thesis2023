@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http:www.w3.org/1999/xhtml">
+    <url>
+        <loc>/login</loc>
+        <method>GET</method>
+        <login>false</login>
+    </url>
+    <url>
+        <loc>/charts</loc>
+        <method>GET</method>
+        <login>true</login>
+    </url>
+    <url>
+        <loc>/get_charts</loc>
+        <method>POST</method>
+        <login>true</login>
+        <json>
+        <arg type="datetime">start</arg>
+        <arg type="datetime">end</arg>
+        <arg type="Last Updated,Creation,ALL">time-opt</arg>
+        <arg type="LINE,BAR,PIE,DIAL,ALL">type</arg>
+        </json>
+    </url>
+</urlset>

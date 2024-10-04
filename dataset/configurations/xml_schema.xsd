@@ -1,0 +1,135 @@
+<?xml version="1.0"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+
+    <xs:simpleType name="duration_type_opt">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value= "SEC"/>
+            <xs:enumeration value= "MIN"/>
+            <xs:enumeration value= "HOUR"/>
+            <xs:enumeration value= "DAY"/>
+            <xs:enumeration value= "WEEK"/>
+            <xs:enumeration value= "MONTH"/>
+            <xs:enumeration value= "YEAR"/>
+        </xs:restriction>
+    </xs:simpleType>
+                            
+
+    <xs:complexType name="run_model">
+        <xs:sequence>
+            <xs:element name="frequency" type="xs:integer"/>
+            <xs:element name="frequency_type" type="xs:string"/>
+            <xs:element name="duration" type="xs:integer"/>
+            <xs:element name="duration_type" type="duration_type_opt"/>
+            <xs:element name="amount" type="xs:integer"/>
+            <xs:element name="perpetual" minOccurs="0"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="vm_model">
+        <xs:sequence>
+            <xs:element name="name" type="xs:string" minOccurs="0"/>
+            <xs:element name="ram" type="xs:integer" minOccurs="0"/>
+            <xs:element name="cpus" type="xs:integer" minOccurs="0"/>
+            <xs:element name="os" type="xs:string" minOccurs="0"/>
+            <xs:element name="storage" type="xs:integer" minOccurs="0"/>
+            <xs:element name="group" type="group_type" minOccurs="0"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="traffic_type">
+        <xs:sequence>
+            <xs:element name="origin" type="xs:string" minOccurs="0"/>
+            <xs:element name="target" type="xs:string" minOccurs="0"/>
+            <xs:element name="script" type="xs:string"/>
+            <xs:element name="model" type="run_model"/>
+            <xs:element name="params" type="param_type" maxOccurs="unbounded" minOccurs="0"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="attack_type">
+        <xs:sequence>
+            <xs:element name="origin" type="xs:string"/>
+            <xs:element name="target" type="xs:string"/>
+            <xs:element name="script" type="xs:string"/>
+            <xs:element name="model" type="run_model"/>
+            <xs:element name="params" type="param_type" maxOccurs="unbounded" minOccurs="0"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="param_type">
+        <xs:sequence>
+            <xs:element name="name" type="xs:string"/>
+            <xs:element name="value" type="xs:string"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:simpleType name="group_type">
+        <xs:restriction base="xs:string">
+            <xs:pattern value="\/[A-Za-z0-9/]*"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:element name="root">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="defaults" minOccurs="0">
+                    <xs:complexType>
+                        <xs:sequence>
+                            <xs:element name="audio-controller" type="xs:string"/>
+                            <xs:element name="graphics-controller" type="xs:string"/>
+                            <xs:element name="pae" type="xs:string"/>
+                            <xs:element name="shared" type="xs:string"/>
+                            <xs:element name="no-usb" type="xs:string"/>
+                            <xs:element name="ram" type="xs:integer"/>
+                            <xs:element name="cpus" type="xs:integer"/>
+                            <xs:element name="os" type="xs:string"/>
+                            <xs:element name="storage" type="xs:integer"/>
+                        </xs:sequence>
+                    </xs:complexType>
+                </xs:element>
+                <xs:element name="general">
+                    <xs:complexType>
+                        <xs:sequence>
+                            <xs:element name="max_groups" type="xs:integer" minOccurs="1" maxOccurs="1"/>
+                            <xs:element name="max_depth" type="xs:integer" minOccurs="1" maxOccurs="1"/>
+                            <xs:element name="max_duration" type="xs:integer" minOccurs="1" maxOccurs="1"/>
+                            <xs:element name="duration_type" type="duration_type_opt" minOccurs="1" maxOccurs="1"/>
+                            <xs:element name="speed_multiplier" type="xs:integer"/>
+                            <xs:element name="name" minOccurs="1" maxOccurs="1">
+                                <xs:simpleType>
+                                    <xs:restriction base="xs:string">
+                                        <xs:enumeration value= "AUTO"/>
+                                        <xs:enumeration value= "INDIVIDUAL"/>
+                                    </xs:restriction>
+                                </xs:simpleType>
+                            </xs:element>
+                            <xs:element name="group" type="group_type" minOccurs="0"/>
+                            <xs:element name="amount" type="xs:integer"/>
+                        </xs:sequence>
+                    </xs:complexType>
+                </xs:element>
+                <xs:element name="individual" minOccurs="0">
+                    <xs:complexType>
+                        <xs:sequence>
+                        <xs:element name="vm" type="vm_model" maxOccurs="unbounded"/>
+                        </xs:sequence>
+                    </xs:complexType>
+                </xs:element>
+                <xs:element name="traffic" minOccurs="0">
+                <xs:complexType>
+                <xs:sequence>
+                <xs:element name="traffic_instance" type="traffic_type" maxOccurs="unbounded" />
+                </xs:sequence>
+                </xs:complexType>
+                </xs:element>
+                <xs:element name="attacks" minOccurs="0">
+                <xs:complexType>
+                <xs:sequence>
+                <xs:element name="attack_instance" type="attack_type" maxOccurs="unbounded" />
+                </xs:sequence>
+                </xs:complexType>
+                </xs:element>   
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+</xs:schema>

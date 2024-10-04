@@ -1,0 +1,14 @@
+@startuml Model Overview
+hide footbox
+[-> Main : start program
+loop 3 times
+    Main -> Dataset : create(file)
+    Main -> Dataset : parse
+end
+Main -> Model : init(datasets)
+Main -> Model : optimise
+Main -> Model : train
+Main -> Model : evaluate
+Main -> Model : Save
+Main ->[ : Program Done
+@enduml
